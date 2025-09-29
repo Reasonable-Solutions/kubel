@@ -27,6 +27,7 @@ We now support managing pretty much any resource!
 - scale replicas
 - multiple kubel buffers, each one with different context, namespace, and resource.
 - live stream of Events for the current namespace (`M-x kubel-namespace-show-live-events`)
+- top views for pods and nodes (`T` → Top menu)
 
 ## Installation
 

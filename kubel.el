@@ -920,6 +920,72 @@ ARGS is the arguments list from transient."
   (kill-new kubel--last-command)
   (message (concat "Last command copied: " kubel--last-command)))
 
+;; --- Top views (kubectl top) ---
+
+(defvar-local kubel-top--kind 'pods
+  "Kind for top view: 'pods or 'nodes.")
+
+(defun kubel--top-buffer-name (context namespace kind)
+  "Return buffer name for top KIND in CONTEXT/NAMESPACE."
+  (if (eq kind 'nodes)
+      (format "*kubel-top:%s:nodes*" context)
+    (format "*kubel-top:%s:%s:pods*" context namespace)))
+
+(defun kubel--top-command (kind)
+  "Build a kubectl top command string for KIND ('pods or 'nodes)."
+  (let* ((base (list kubel-kubectl))
+         (ctx (unless (equal kubel-context "") (list "--context" kubel-context)))
+         (ns (when (and (eq kind 'pods) (not (equal kubel-namespace ""))) (list "-n" kubel-namespace)))
+         (sub (list "top" (if (eq kind 'nodes) "nodes" "pods"))))
+    (mapconcat #'identity (append base ctx ns sub) " ")))
+
+(defun kubel-top--populate (kind)
+  "Return tabulated list format and entries for top KIND."
+  (let* ((body (kubel--exec-to-string (kubel--top-command kind)))
+         (entrylist (kubel--parse-body body)))
+    (list (kubel--get-list-format entrylist) (kubel--get-list-entries entrylist))))
+
+(define-derived-mode kubel-top-mode tabulated-list-mode "Kubel-Top"
+  "Special mode for kubel top buffers."
+  (buffer-disable-undo)
+  (kill-all-local-variables)
+  (setq truncate-lines t)
+  (setq mode-name "Kubel-Top")
+  (setq major-mode 'kubel-top-mode)
+  (hl-line-mode 1)
+  (local-set-key (kbd "g") #'kubel-top-refresh)
+  (run-mode-hooks 'kubel-top-mode-hook))
+
+(defun kubel-top-refresh ()
+  "Refresh current kubel top buffer."
+  (interactive)
+  (let ((entries (kubel-top--populate kubel-top--kind)))
+    (setq tabulated-list-format (car entries))
+    (setq tabulated-list-entries (cadr entries))
+    (setq tabulated-list-sort-key nil)
+    (tabulated-list-init-header)
+    (tabulated-list-print t)))
+
+(defun kubel-top-open (kind)
+  "Open a kubel top buffer for KIND ('pods or 'nodes)."
+  (let* ((name (kubel--top-buffer-name kubel-context kubel-namespace kind))
+         (buf (or (get-buffer name) (get-buffer-create name))))
+    (with-current-buffer buf
+      (setq kubel-top--kind kind)
+      (kubel-top-mode)
+      (pop-to-buffer-same-window buf)
+      (kubel-top-refresh))))
+
+(defun kubel-top-pods ()
+  "Show kubectl top pods for the current namespace."
+  (interactive)
+  (kubel-top-open 'pods))
+
+(defun kubel-top-nodes ()
+  "Show kubectl top nodes for the current context."
+  (interactive)
+  (kubel-top-open 'nodes))
+
 (defun kubel-set-kubectl-config-file (configfile)
   "Set the path to the kubectl CONFIGFILE."
   (interactive "f")
@@ -1200,16 +1266,28 @@ the variables `kubel-namespace' and `kubel-context', respectively."
     (shell-command command)))
 
 (defun kubel-delete-resource ()
-  "Kubectl delete resource under cursor."
+  "Delete the selected resource(s), return to the list buffer, and refresh."
   (interactive)
-  (dolist (pod (if (kubel--items-selected-p)
-                   kubel--selected-items
-                 (list (kubel--get-resource-under-cursor))))
-    (let* ((process-name (format "kubel - delete %s - %s" kubel-resource pod))
-           (args (list "delete" kubel-resource pod)))
-      (when (transient-args 'kubel-delete-popup)
-        (setq args (append args (list "--force" "--grace-period=0"))))
-      (kubel--exec process-name args))))
+  (let* ((orig-buf (current-buffer))
+         (orig-win (selected-window))
+         (targets (if (kubel--items-selected-p)
+                      kubel--selected-items
+                    (list (kubel--get-resource-under-cursor))))
+         (force-opts (when (transient-args 'kubel-delete-popup)
+                       (list "--force" "--grace-period=0"))))
+    (dolist (name targets)
+      (let* ((process-name (format "kubel - delete %s - %s" kubel-resource name))
+             (args (append (list "delete" kubel-resource name) force-opts)))
+        (kubel--exec process-name args nil
+                     (lambda ()
+                       (when (buffer-live-p orig-buf)
+                         (with-current-buffer orig-buf
+                           (when (eq major-mode 'kubel-mode)
+                             (kubel-refresh))))))))
+    ;; Return focus to the resource list buffer immediately.
+    (when (and (window-live-p orig-win) (buffer-live-p orig-buf))
+      (select-window orig-win)
+      (pop-to-buffer-same-window orig-buf))))
 
 (defun kubel-jab-deployment ()
   "Make a trivial patch to force a new deployment.
@@ -1413,8 +1491,9 @@ When called interactively, prompts for a buffer belonging to kubel."
     ("g" "Refresh" kubel-refresh)
     ("b" "Buffers" kubel-switch-to-buffer)
     ("k" "Delete" kubel-delete-popup)
-    ("r" "Rollout" kubel-rollout-history)]
-  ["" ;; based on current view
+    ("r" "Rollout" kubel-rollout-history)
+    ("T" "Top" kubel-top-popup)]
+   ["" ;; based on current view
     ("p" "Port forward" kubel-port-forward-pod)
     ("V" "Live events (ns)" kubel-namespace-show-live-events)
     ("l" "Logs" kubel-log-popup)
@@ -1440,6 +1519,12 @@ When called interactively, prompts for a buffer belonging to kubel."
    ["Utilities"
     ("c" "Copy to clipboad..." kubel-copy-popup)
     ("$" "Show Process buffer" kubel-show-process-buffer)]])
+
+(transient-define-prefix kubel-top-popup ()
+  "Kubel Top Menu"
+  ["Actions"
+   ("p" "Top pods" kubel-top-pods)
+   ("n" "Top nodes" kubel-top-nodes)])
 
 ;; mode map
 (defvar kubel-mode-map
@@ -1467,6 +1552,7 @@ When called interactively, prompts for a buffer belonging to kubel."
     (define-key map (kbd "p") 'kubel-port-forward-pod)
     (define-key map (kbd "S") 'kubel-scale-replicas)
     (define-key map (kbd "l") 'kubel-log-popup)
+    (define-key map (kbd "T") 'kubel-top-popup)
     (define-key map (kbd "c") 'kubel-copy-popup)
     (define-key map (kbd "e") 'kubel-exec-popup)
     (define-key map (kbd "!") 'kubel-exec-pod-by-shell-command)
