@@ -26,6 +26,7 @@ We now support managing pretty much any resource!
 - quick run shell-command
 - scale replicas
 - multiple kubel buffers, each one with different context, namespace, and resource.
+- live stream of Events for the current namespace (`M-x kubel-namespace-show-live-events`)
 
 ## Installation
 
@@ -125,6 +126,14 @@ For example, if you want to edit a deployment, you can switch the resource with 
 
 Alternatively, you can hit `E` to then select the resource type and the resource name of what you want to edit.
 
+Apply popup and Server Side Apply
+
+When in the edit buffer, pressing `C-c C-c` opens an apply menu where you can:
+- Toggle Server Side Apply
+- Set the field manager
+- Optionally force conflicts
+Then choose Apply to run with those options, or Apply now to use your configured defaults.
+
 ## Customize
 
 - By default, kubel log tails from the last 100 lines, you can change the `kubel-log-tail-n` variable to set another line number.
@@ -137,6 +146,10 @@ Alternatively, you can hit `E` to then select the resource type and the resource
   - When enabled, `kubel-refresh` will read the current kubectl context and namespace (as configured in your kubeconfig) and update the buffer to match.
   - Manual overrides via `kubel-set-context` and `kubel-set-namespace` are respected and will not be overwritten by auto-sync.
   - You can also call `M-x kubel-sync-context-namespace` to force a sync at any time.
+- Server Side Apply options:
+  - `kubel-use-server-side-apply` (default: `nil`) to enable server-side apply when applying edited resources.
+  - `kubel-field-manager` (default: `"kubel"`) to set the field manager name.
+  - `kubel-server-side-apply-force-conflicts` (default: `nil`) to pass `--force-conflicts` (use with care).
 
 ## Releases
 

@@ -240,6 +240,23 @@ are respected and will not be overwritten by auto-sync."
   :type 'integer
   :group 'kubel)
 
+(defcustom kubel-use-server-side-apply nil
+  "When non-nil, use Server Side Apply for resource changes."
+  :type 'boolean
+  :group 'kubel)
+
+(defcustom kubel-field-manager "kubel"
+  "Field manager name used with Server Side Apply."
+  :type 'string
+  :group 'kubel)
+
+(defcustom kubel-server-side-apply-force-conflicts nil
+  "When non-nil, pass --force-conflicts with Server Side Apply.
+
+Warning: This steals ownership of fields from other managers. Use with care."
+  :type 'boolean
+  :group 'kubel)
+
 (defcustom kubel-list-wide nil
   "Control whether list views show additional colums.
 
@@ -717,7 +734,7 @@ TYPENAME is the resource type/name."
 
 (defvar kubel-yaml-editing-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "C-c C-c") #'kubel-apply)
+    (define-key map (kbd "C-c C-c") #'kubel-apply-popup)
     (define-key map (kbd "C-c C-k") #'kubel-kill-buffer)
     map)
   "Keymap used in `kubel-yaml-editing-mode' buffers.")
@@ -731,9 +748,12 @@ Allows simple apply of the changes made.
 
 \\{kubel-yaml-editing-mode-map}")
 
-(defun kubel-apply ()
-  "Save the current buffer to a temp file and try to kubectl apply it."
-  (interactive)
+(defun kubel--apply-with-opts (use-ssa field-manager force-conflicts)
+  "Apply current buffer with options.
+
+USE-SSA enables server-side apply when non-nil.
+FIELD-MANAGER is the SSA field manager string.
+FORCE-CONFLICTS when non-nil adds --force-conflicts."
   (setq dir-prefix (or
                     (when (tramp-tramp-file-p default-directory)
                       (with-parsed-tramp-file-name default-directory nil
@@ -743,12 +763,49 @@ Allows simple apply of the changes made.
                                                 (replace-regexp-in-string "/" "_"
                                                                           (replace-regexp-in-string "\*\\| " "" (buffer-name)))
                                                 (floor (float-time))))
-         (filename (format "%s%s" dir-prefix filename-without-tramp-prefix)))
+         (filename (format "%s%s" dir-prefix filename-without-tramp-prefix))
+         (apply-args (append
+                      (list "apply")
+                      (when use-ssa
+                        (append (list "--server-side"
+                                      (format "--field-manager=%s" field-manager))
+                                (when force-conflicts (list "--force-conflicts"))))
+                      (list "-f" filename-without-tramp-prefix))))
     (when (y-or-n-p "Apply the changes? ")
       (unless  (file-exists-p (format "%s/tmp/kubel" dir-prefix))
         (make-directory (format "%s/tmp/kubel" dir-prefix) t))
       (write-region (point-min) (point-max) filename)
-      (kubel--exec (format "kubectl - apply - %s" filename) (list "apply" "-f" filename-without-tramp-prefix) nil (lambda () (message "Applied %s" filename))))))
+      (kubel--exec (format "kubectl - apply - %s" filename) apply-args nil (lambda () (message "Applied %s" filename))))))
+
+(defun kubel-apply ()
+  "Apply current buffer using configured defaults."
+  (interactive)
+  (kubel--apply-with-opts kubel-use-server-side-apply kubel-field-manager kubel-server-side-apply-force-conflicts))
+
+(defun kubel--parse-apply-args (args)
+  "Parse ARGS from the transient Apply popup into options."
+  (let* ((use-ssa (member "--server-side" args))
+         (force (member "--force-conflicts" args))
+         (mgr-opt (--first (string-prefix-p "--field-manager=" it) args))
+         (manager (if mgr-opt (string-remove-prefix "--field-manager=" mgr-opt) kubel-field-manager)))
+    (list use-ssa manager force)))
+
+(defun kubel-apply-from-popup ()
+  "Apply buffer using options from the transient popup."
+  (interactive)
+  (pcase-let* ((`(,use-ssa ,manager ,force)
+                (kubel--parse-apply-args (transient-args 'kubel-apply-popup))))
+    (kubel--apply-with-opts use-ssa manager force)))
+
+(transient-define-prefix kubel-apply-popup ()
+  "Apply edited resource with options."
+  ["Options"
+   ("-S" "Server-side apply" "--server-side")
+   ("-m" "Field manager" "--field-manager=")
+   ("-F" "Force conflicts" "--force-conflicts")]
+  ["Actions"
+   ("C-c" "Apply" kubel-apply-from-popup)
+   ("A" "Apply now" kubel-apply)])
 
 (defun kubel-get-resource-details (&optional describe)
   "Get the details of the resource under the cursor.
@@ -815,6 +872,12 @@ ARGS is the arguments list from transient."
   (interactive
    (list (transient-args 'kubel-log-popup)))
   (kubel-get-pod-logs args "initContainers"))
+
+(defun kubel-namespace-show-live-events ()
+  "Show a live-updating stream of events for the current namespace."
+  (interactive)
+  (let ((process-name (format "kubel - events - %s" kubel-namespace)))
+    (kubel--exec process-name (list "get" "events" "--watch") t nil)))
 
 (defun kubel-get-logs-by-labels (&optional args)
   "Get the last N logs of the pods by labels.
@@ -1351,8 +1414,9 @@ When called interactively, prompts for a buffer belonging to kubel."
     ("b" "Buffers" kubel-switch-to-buffer)
     ("k" "Delete" kubel-delete-popup)
     ("r" "Rollout" kubel-rollout-history)]
-   ["" ;; based on current view
+  ["" ;; based on current view
     ("p" "Port forward" kubel-port-forward-pod)
+    ("V" "Live events (ns)" kubel-namespace-show-live-events)
     ("l" "Logs" kubel-log-popup)
     ("e" "Exec" kubel-exec-popup)
     ("j" "Jab" kubel-jab-deployment)

@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file.
 - run `kubectl describe pod`
 - `kubectl` apply a buffer to current context/namespace
  - Auto-sync kubel context/namespace with kubectl current settings (new `kubel-auto-sync-context-namespace`), with manual overrides respected
+ - Optional Server Side Apply for edits (`kubel-use-server-side-apply`, `kubel-field-manager`, `kubel-server-side-apply-force-conflicts`)
 
 ## [3.1.0] -
 ### Added
