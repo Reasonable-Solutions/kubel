@@ -1436,6 +1436,24 @@ When called interactively, prompts for a buffer belonging to kubel."
   (interactive (list (kubel--read-buffer)))
   (switch-to-buffer buffer-or-name))
 
+(defun kubel-kill-all-buffers (kill-current)
+  "Kill all buffers created by kubel.
+
+With universal argument KILL-CURRENT (C-u), also kill the current buffer.
+Without it, keep the current buffer even if it is a kubel buffer."
+  (interactive "P")
+  (let ((count 0)
+        (cur (current-buffer)))
+    (dolist (buf (buffer-list))
+      (let ((name (buffer-name buf)))
+        (when (and name (string-prefix-p "*kubel" name))
+          (when (and (not kill-current) (eq buf cur))
+            (cl-return))
+          (when (buffer-live-p buf)
+            (kill-buffer buf)
+            (setq count (1+ count))))))
+    (message "Killed %d kubel buffer(s)" count)))
+
 ;; popups
 
 (transient-define-prefix kubel-exec-popup ()
@@ -1518,7 +1536,8 @@ When called interactively, prompts for a buffer belonging to kubel."
     ("U" "Unmark all items" kubel-unmark-all)]
    ["Utilities"
     ("c" "Copy to clipboad..." kubel-copy-popup)
-    ("$" "Show Process buffer" kubel-show-process-buffer)]])
+    ("$" "Show Process buffer" kubel-show-process-buffer)
+    ("x" "Kill all kubel buffers" kubel-kill-all-buffers)]])
 
 (transient-define-prefix kubel-top-popup ()
   "Kubel Top Menu"
