@@ -213,6 +213,20 @@
   :type '(file :must-match t)
   :group 'kubel)
 
+(defcustom kubel-auto-sync-context-namespace t
+  "Automatically sync kubel context and namespace with kubectl.
+
+When non-nil, kubel will attempt to read the current kubectl
+context and namespace from the active kubeconfig and update the
+buffer's `kubel-context' and `kubel-namespace' on refresh. This
+keeps kubel aligned with changes made in a shell (e.g. via
+kubectl, kubectx, kubens).
+
+Manual overrides via `kubel-set-context' and `kubel-set-namespace'
+are respected and will not be overwritten by auto-sync."
+  :type 'boolean
+  :group 'kubel)
+
 (defconst kubel--process-buffer "*kubel-process*"
   "Kubel process buffer name.")
 
@@ -307,6 +321,12 @@ CMD is the command string to run."
    "\n" "" (kubel--exec-to-string "kubectl config current-context"))
   "Current context.  Tries to smart default.")
 
+(defvar-local kubel--manual-context nil)
+"Non-nil if context was set manually via kubel.")
+
+(defvar-local kubel--manual-namespace nil)
+"Non-nil if namespace was set manually via kubel.")
+
 (defvar-local kubel-resource-filter ""
   "Substring filter for resource name.")
 
@@ -342,6 +362,34 @@ CMD is the command string to run."
   (setq kubel--can-get-namespace-cached nil)
   (setq kubel--namespace-list-cached nil)
   (setq kubel--label-values-cached nil))
+
+(defun kubel--current-kubectl-context ()
+  "Get the current kubectl context as a string."
+  (string-trim (kubel--exec-to-string (format "%s config current-context" kubel-kubectl))))
+
+(defun kubel--current-kubectl-namespace ()
+  "Get the current kubectl namespace for the current context.
+Falls back to \"default\" if not set."
+  (let* ((raw (kubel--exec-to-string (format "%s config view --minify -o jsonpath='{..namespace}'" kubel-kubectl)))
+         (ns (string-trim raw)))
+    (if (string-empty-p ns) "default" ns)))
+
+(defun kubel-sync-context-namespace ()
+  "Sync `kubel-context' and `kubel-namespace' with kubectl state.
+
+Respects manual overrides set via kubel commands. This function is
+safe to call frequently and will invalidate caches if a change is
+detected."
+  (interactive)
+  (let* ((ctx (kubel--current-kubectl-context))
+         (ns (kubel--current-kubectl-namespace))
+         (ctx-changed (and (not (string-equal ctx kubel-context)) (not kubel--manual-context)))
+         (ns-changed (and (not (string-equal ns kubel-namespace)) (not kubel--manual-namespace))))
+    (when ctx-changed
+      (setq kubel-context ctx)
+      (kubel--invalidate-context-caches))
+    (when ns-changed
+      (setq kubel-namespace ns))))
 
 (defun kubel--populate-list ()
   "Return a list with a tabulated list format and \"tabulated-list-entries\"."
@@ -520,6 +568,8 @@ CALLBACK is a function that will be executed when the command completes.
 READONLY If true buffer will be in readonly mode(view-mode)."
   (when (equal process-name "")
     (setq process-name "kubel-command"))
+  (when kubel-auto-sync-context-namespace
+    (kubel-sync-context-namespace))
   (let ((buffer-name (format "*kubel-resource:%s:%s:%s*" kubel-context kubel-namespace (string-join args "_")))
         (error-buffer (kubel--process-error-buffer process-name))
         (cmd (append (list kubel-kubectl) (kubel--get-context-namespace) args)))
@@ -852,6 +902,7 @@ the context caches, including the cached resource list."
                                    (with-current-buffer kubel--buffer default-directory))))
     (with-current-buffer (clone-buffer)
       (setq kubel-namespace namespace)
+      (setq kubel--manual-namespace t)
       (kubel--add-namespace-to-history namespace)
       (switch-to-buffer (current-buffer))
       (kubel-refresh last-default-directory))))
@@ -868,6 +919,8 @@ the context caches, including the cached resource list."
              (split-string (kubel--exec-to-string (format "%s config view -o jsonpath='{.contexts[*].name}'" kubel-kubectl)) " ")))
       (kubel--invalidate-context-caches)
       (setq kubel-namespace "default")
+      (setq kubel--manual-context t)
+      (setq kubel--manual-namespace t)
       (switch-to-buffer (current-buffer))
       (kubel-refresh last-default-directory))))
 
@@ -1369,6 +1422,8 @@ context, namespace, and resource.
 
 DIRECTORY is optional for TRAMP support."
   (interactive)
+  (when kubel-auto-sync-context-namespace
+    (kubel-sync-context-namespace))
   (when directory (setq default-directory directory))
   (let ((name (kubel--buffer-name)))
     ;; Remove old buffer if exist but not is current buffer
@@ -1405,6 +1460,9 @@ DIRECTORY is optional for TRAMP support."
         (kubel-mode)
         (setq kubel-context context)
         (setq kubel-namespace namespace)
+        ;; Respect explicitly provided values; mark as manual overrides
+        (setq kubel--manual-context t)
+        (setq kubel--manual-namespace t)
         (setq kubel-resource resource)
         (pop-to-buffer-same-window tmpname)
         (kubel-refresh directory)))))

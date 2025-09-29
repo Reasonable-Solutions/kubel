@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 - safe way to help with rollbacks?
 - run `kubectl describe pod`
 - `kubectl` apply a buffer to current context/namespace
+ - Auto-sync kubel context/namespace with kubectl current settings (new `kubel-auto-sync-context-namespace`), with manual overrides respected
 
 ## [3.1.0] -
 ### Added

@@ -133,6 +133,10 @@ Alternatively, you can hit `E` to then select the resource type and the resource
   - auto - default, use `kubectl auth can-i list namespace` to determine if we can list namespaces
   - on - always assume we can list namespaces
   - off - always assume we cannot list namespaces
+- Auto-sync of context/namespace with kubectl is controlled by `kubel-auto-sync-context-namespace` (default: `t`).
+  - When enabled, `kubel-refresh` will read the current kubectl context and namespace (as configured in your kubeconfig) and update the buffer to match.
+  - Manual overrides via `kubel-set-context` and `kubel-set-namespace` are respected and will not be overwritten by auto-sync.
+  - You can also call `M-x kubel-sync-context-namespace` to force a sync at any time.
 
 ## Releases
 
