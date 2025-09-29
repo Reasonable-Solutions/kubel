@@ -877,7 +877,23 @@ ARGS is the arguments list from transient."
   "Show a live-updating stream of events for the current namespace."
   (interactive)
   (let ((process-name (format "kubel - events - %s" kubel-namespace)))
-    (kubel--exec process-name (list "get" "events" "--watch") t nil)))
+    (kubel--exec process-name (list "get" "events" "--watch") t nil)
+    (kubel--events-enable-highlighting)))
+
+(defvar kubel--events-font-lock-keywords
+  '(("\\b[Nn]ormal\\b" . success)
+    ("\\b[Ww]arning\\b" . warning)
+    ("\\b[Ee]rror\\b" . error)
+    ("^[[:space:]]*[0-9]+[smhd]" . shadow)
+    ("[a-z.-]+/[A-Za-z0-9_.-]+" . font-lock-constant-face))
+  "Font-lock keywords for kubectl events output.")
+
+(defun kubel--events-enable-highlighting ()
+  "Enable lightweight syntax highlighting for kubectl events buffers."
+  (setq-local font-lock-defaults '(kubel--events-font-lock-keywords t))
+  (font-lock-mode 1)
+  (font-lock-flush)
+  (font-lock-ensure))
 
 (defun kubel-get-logs-by-labels (&optional args)
   "Get the last N logs of the pods by labels.
@@ -1447,11 +1463,10 @@ Without it, keep the current buffer even if it is a kubel buffer."
     (dolist (buf (buffer-list))
       (let ((name (buffer-name buf)))
         (when (and name (string-prefix-p "*kubel" name))
-          (when (and (not kill-current) (eq buf cur))
-            (cl-return))
-          (when (buffer-live-p buf)
-            (kill-buffer buf)
-            (setq count (1+ count))))))
+          (unless (and (not kill-current) (eq buf cur))
+            (when (buffer-live-p buf)
+              (kill-buffer buf)
+              (setq count (1+ count)))))))
     (message "Killed %d kubel buffer(s)" count)))
 
 ;; popups
