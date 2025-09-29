@@ -321,11 +321,11 @@ CMD is the command string to run."
    "\n" "" (kubel--exec-to-string "kubectl config current-context"))
   "Current context.  Tries to smart default.")
 
-(defvar-local kubel--manual-context nil)
-"Non-nil if context was set manually via kubel.")
+(defvar-local kubel--manual-context nil
+  "Non-nil if context was set manually via kubel.")
 
-(defvar-local kubel--manual-namespace nil)
-"Non-nil if namespace was set manually via kubel.")
+(defvar-local kubel--manual-namespace nil
+  "Non-nil if namespace was set manually via kubel.")
 
 (defvar-local kubel-resource-filter ""
   "Substring filter for resource name.")
@@ -660,9 +660,10 @@ DESCRIBE is boolean to describe instead of get resource details"
                      (goto-char (point-min)))))
     (if describe
         (kubel--exec process-name (list "describe" name resource) nil callback)
-      (kubel--exec process-name (list "get" name "-o" kubel-output resource) nil callback))
-    (when (string-equal kubel-output "yaml")
-      (kubel-yaml-editing-mode))))
+      (progn
+        (kubel--exec process-name (list "get" name "-o" kubel-output resource) nil callback)
+        (when (string-equal kubel-output "yaml")
+          (kubel-yaml-editing-mode))))))
 
 (defun kubel--show-rollout-revision (type name)
   "Show a specific revision of a certain resource.
@@ -764,12 +765,18 @@ Allows simple apply of the changes made.
                      (goto-char (point-min)))))
     (if describe
         (kubel--exec process-name (list "describe" kubel-resource (kubel--get-resource-under-cursor)) nil callback)
-      (kubel--exec process-name (list "get" kubel-resource (kubel--get-resource-under-cursor) "-o" kubel-output) nil callback))
-    (when (or (string-equal kubel-output "yaml") (transient-args 'kubel-describe-popup))
-      (kubel-yaml-editing-mode)
-      (setq kubel-context ctx)
-      (setq kubel-namespace ns)
-      (setq kubel-resource res))))
+      (progn
+        (kubel--exec process-name (list "get" kubel-resource (kubel--get-resource-under-cursor) "-o" kubel-output) nil callback)
+        (when (or (string-equal kubel-output "yaml") (transient-args 'kubel-describe-popup))
+          (kubel-yaml-editing-mode)
+          (setq kubel-context ctx)
+          (setq kubel-namespace ns)
+          (setq kubel-resource res))))))
+
+(defun kubel-describe-current-resource ()
+  "Describe the resource under the cursor using `kubectl describe'."
+  (interactive)
+  (kubel-get-resource-details t))
 
 (defun kubel--default-tail-arg (args)
   "Ugly function to make sure that there is at least the default tail.
@@ -1328,10 +1335,11 @@ When called interactively, prompts for a buffer belonging to kubel."
 
 (transient-define-prefix kubel-describe-popup ()
   "Kubel Describe Menu"
-  ["Arguments"
+  ["Arguments (for Get)"
    ("-y" "Yaml" "-o yaml")]
   ["Actions"
-   ("RET" "Describe" kubel-get-resource-details)])
+   ("RET" "Describe (with events)" kubel-describe-current-resource)
+   ("g" "Get details" kubel-get-resource-details)])
 
 (transient-define-prefix kubel-help-popup ()
   "Kubel Menu"
