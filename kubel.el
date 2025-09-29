@@ -881,19 +881,22 @@ ARGS is the arguments list from transient."
     (kubel--events-enable-highlighting)))
 
 (defvar kubel--events-font-lock-keywords
-  '(("\\b[Nn]ormal\\b" . success)
-    ("\\b[Ww]arning\\b" . warning)
-    ("\\b[Ee]rror\\b" . error)
-    ("^[[:space:]]*[0-9]+[smhd]" . shadow)
-    ("[a-z.-]+/[A-Za-z0-9_.-]+" . font-lock-constant-face))
+  '(("\\b[Nn]ormal\\b" (0 font-lock-string-face t))
+    ("\\b[Ww]arning\\b" (0 font-lock-warning-face t))
+    ("\\b[Ee]rror\\b" (0 font-lock-warning-face t))
+    ("^[[:space:]]*[0-9]+[smhd]" (0 font-lock-comment-delimiter-face t))
+    ("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+" (0 font-lock-constant-face t)))
   "Font-lock keywords for kubectl events output.")
 
 (defun kubel--events-enable-highlighting ()
   "Enable lightweight syntax highlighting for kubectl events buffers."
-  (setq-local font-lock-defaults '(kubel--events-font-lock-keywords t))
+  (setq-local case-fold-search t)
   (font-lock-mode 1)
-  (font-lock-flush)
-  (font-lock-ensure))
+  (font-lock-add-keywords nil kubel--events-font-lock-keywords 'append)
+  (let ((inhibit-read-only t))
+    (font-lock-refresh-defaults)
+    (font-lock-flush)
+    (font-lock-ensure)))
 
 (defun kubel-get-logs-by-labels (&optional args)
   "Get the last N logs of the pods by labels.
